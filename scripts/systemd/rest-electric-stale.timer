@@ -1,0 +1,12 @@
+[Unit]
+Description=每 6 小时检查一次电费采集端
+
+[Timer]
+# 开机 10 分钟后先查一次，之后每 6 小时一次
+OnBootSec=10min
+OnUnitActiveSec=6h
+AccuracySec=1min
+Unit=rest-electric-stale.service
+
+[Install]
+WantedBy=timers.target

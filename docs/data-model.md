@@ -13,11 +13,14 @@
 | `id` | INTEGER PK | 自增 |
 | `room_key` | TEXT NOT NULL | 房间唯一标识，如 `A-305`；仅作分区字段 |
 | `balance_cents` | INTEGER NOT NULL | 余额（分）。允许 0，允许负数（欠费） |
-| `source` | TEXT NOT NULL | 数据来源标记，如 `api` / `fixture` / `manual` |
+| `source` | TEXT NOT NULL | 数据来源标记：`epay`（网页版，默认）/ `api`（小程序接口）/ `fixture`（样本）/ `manual`（手工补录）/ `phone`、`adb`（手机读屏上报） |
 | `raw_json` | TEXT | 原始响应（已脱敏），用于协议变更时回溯 |
 | `captured_at` | TEXT NOT NULL | ISO 8601 带时区，如 `2026-10-21T09:07:12+08:00` |
 
 唯一约束：`UNIQUE(room_key, captured_at)` — 同一时间点重跑不会重复插入。
+
+> 手机上报另有兜底：同一房间、同一金额、10 分钟内重复上报会被 `ingest.recent_duplicate()`
+> 判定为重复（因为手机时钟偏差过大时 `captured_at` 会被服务器时间替换，UNIQUE 不再生效）。
 
 索引：`idx_readings_room_time(room_key, captured_at)`。
 
@@ -26,7 +29,7 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `room_key` | TEXT NOT NULL | |
-| `level` | TEXT NOT NULL | `low_balance` / `predicted_low` / `auth_expired` / `fetch_failed` |
+| `level` | TEXT NOT NULL | `low_balance` / `predicted_low` / `auth_expired` / `fetch_failed` / `stale_ingest`（采集端离线）/ `suspect_reading`（读数异常） |
 | `day` | TEXT NOT NULL | 本地日期 `YYYY-MM-DD` |
 | `sent_at` | TEXT NOT NULL | 实际发送时间 |
 | `detail` | TEXT | 当时的余额/剩余天数快照 |

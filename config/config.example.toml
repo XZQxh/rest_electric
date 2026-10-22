@@ -36,8 +36,9 @@ user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 
 [api]
 # fixture: 用本地样本，不联网（保证开箱可跑）
-# http:    真实请求
-mode = "http"
+# http:    直接调小程序后端接口（需要 2 小时 token）
+# epay:    走网页版 /epay/h5/eleresult（CAS 登录，不需要微信、不需要 token）
+mode = "epay"
 base_url = "https://shoucard.shou.edu.cn"
 balance_path = "/openservice/miniprogram/queryroominfo"
 method = "POST"
@@ -65,6 +66,32 @@ areaid = "1"
 Referer = "https://servicewechat.com/wx2bd5919ee8323801/8/page-frame.html"
 xweb_xhr = "1"
 charset = "utf-8"
+
+# 网页版查询（办事大厅 → 一卡通 → 电费）：不需要微信、不需要 token。
+# 未登录时自动走一遍 CAS（学号+密码，见 secrets.toml 的 [epay]）。
+[epay]
+base_url = "https://shoucard.shou.edu.cn"
+result_path = "/epay/h5/eleresult"
+# 电控系统：1 = 电控转账（抓包验证可用）
+sysid = "1"
+areaid = "1"
+buildid = "1"
+# 房间号用上面 [room].room
+
+# 手机采集端上报服务（python -m rest_electric serve-ingest）
+# 手机上的自动化脚本把「页面读到的余额」POST 到这里，落库/预测/告警与 once 完全一致。
+[ingest]
+# 监听地址。只在局域网用：0.0.0.0 表示所有网卡
+bind = "0.0.0.0"
+port = 8787
+# 只接受这些网段的上报。默认值只允许本机；要给手机用请加上你的局域网段
+allow_cidr = ["127.0.0.1/32", "::1/128", "192.168.0.0/16"]
+# 手机时钟偏移超过这个秒数时，以服务器时间为准（原值留在 raw 里）
+max_skew_seconds = 900
+# 超过这个小时数没有新读数，check-stale 就判定采集端离线并推送
+stale_hours = 30
+# 与上一条读数相差超过这个额（分）就拒绝入库，防止读到了卡号/学号等别的数字
+max_delta_cents = 2000
 
 [notify]
 # serverchan | pushplus | smtp | none

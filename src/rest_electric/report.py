@@ -16,6 +16,8 @@ LEVEL_LABELS = {
     "predicted_low": "预计欠费",
     "auth_expired": "登录失效",
     "fetch_failed": "查询失败",
+    "stale_ingest": "采集端离线",
+    "suspect_reading": "读数异常",
 }
 
 

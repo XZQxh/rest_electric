@@ -6,13 +6,14 @@ import argparse
 import base64
 import datetime
 import json
+import os
 import shutil
 import sys
 import tomllib
 from pathlib import Path
 from typing import Any
 
-from . import __version__, alerts, clock, log, notify, report, store
+from . import __version__, alerts, clock, epay, ingest, log, notify, report, store
 from .client import get_path, make_client
 from .config import DEFAULT_SECRETS, Config, load_config
 from .errors import (
@@ -162,6 +163,40 @@ def _print_summary(
     print("-" * 52)
 
 
+def _record_and_alert(
+    config: Config,
+    conn: Any,
+    reading: Reading,
+    logger: Any,
+    *,
+    enabled: bool,
+) -> tuple[bool, Estimate]:
+    """写库 + 预测 + 告警。`once` 与手机上报（`ingest`）共用同一条管线。"""
+    inserted = store.insert_reading(conn, reading, config.keep_raw)
+    store.set_meta(conn, "last_success_at", clock.iso())
+    logger.info(
+        "已写入读数：%s 元（%s，来源 %s）",
+        reading.balance_yuan,
+        "新增" if inserted else "重复",
+        reading.source,
+    )
+
+    estimate_result = estimate(
+        store.daily_points(conn, config.room_key, config.window_days),
+        reading.balance_cents,
+    )
+    decisions = alerts.decide(
+        reading.balance_cents,
+        estimate_result,
+        config.balance_floor_cents,
+        config.days_left_warn,
+    )
+    for decision in decisions:
+        title, body = _format_alert(config, decision, reading, estimate_result)
+        _send_once(config, conn, logger, decision.level, title, body, enabled, False)
+    return inserted, estimate_result
+
+
 # ---------------------------------------------------------------- 子命令
 
 
@@ -183,13 +218,25 @@ def cmd_once(args: argparse.Namespace) -> int:
         reading = client.fetch()
     except AuthExpiredError as exc:
         logger.error("登录态失效：%s", exc)
-        title = "电费查询登录态失效，需要续期"
+        if config.api_mode == "epay":
+            title = "电费网页端登录失败"
+            hint = (
+                "网页版自动登录没有成功。请检查：\n"
+                "1. `config/secrets.toml` 的 `[epay].username` / `[epay].password` 是否正确；\n"
+                "2. 学校登录页是否新增了验证码（有的话脚本需要人工处理）；\n"
+                "3. 账号是否被锁定。"
+            )
+        else:
+            title = "电费查询登录态失效，需要续期"
+            hint = (
+                "请在 PC 微信里重新打开「上海海洋大学一卡通」小程序查一次电费，"
+                "按 docs/recon-sop.md 抓出新 token 后执行：\n"
+                "`python -m rest_electric refresh-token --token <新值>`"
+            )
         body = (
             f"**房间**：{config.room_key}\n\n"
             f"**原因**：{exc}\n\n"
-            "请在 PC 微信里重新打开「上海海洋大学一卡通」小程序查一次电费，"
-            "按 docs/recon-sop.md 抓出新 token 后执行：\n"
-            "`python -m rest_electric refresh-token --token <新值>`"
+            f"{hint}"
         )
         _send_once(
             config, conn, logger, alerts.LEVEL_AUTH_EXPIRED, title, body, enabled, dry_run
@@ -213,34 +260,173 @@ def cmd_once(args: argparse.Namespace) -> int:
             print(f"[干跑] 查询失败：{exc}")
         return EXIT_FAIL
 
-    estimate_result = estimate(
-        [] if dry_run else store.daily_points(conn, config.room_key, config.window_days),
-        reading.balance_cents,
-    )
-
     if dry_run:
+        estimate_result = estimate([], reading.balance_cents)
         _print_summary(config, reading, estimate_result, inserted=False, dry_run=True)
         return EXIT_OK
 
-    inserted = store.insert_reading(conn, reading, config.keep_raw)
-    store.set_meta(conn, "last_success_at", clock.iso())
-    logger.info("已写入读数：%s 元（%s）", reading.balance_yuan, "新增" if inserted else "重复")
-
-    estimate_result = estimate(
-        store.daily_points(conn, config.room_key, config.window_days),
-        reading.balance_cents,
+    inserted, estimate_result = _record_and_alert(
+        config, conn, reading, logger, enabled=enabled
     )
-    decisions = alerts.decide(
-        reading.balance_cents,
-        estimate_result,
-        config.balance_floor_cents,
-        config.days_left_warn,
-    )
-    for decision in decisions:
-        title, body = _format_alert(config, decision, reading, estimate_result)
-        _send_once(config, conn, logger, decision.level, title, body, enabled, dry_run)
 
     _print_summary(config, reading, estimate_result, inserted=inserted, dry_run=False)
+    return EXIT_OK
+
+
+def cmd_serve_ingest(args: argparse.Namespace) -> int:
+    """常驻：接收手机上报的余额。"""
+    config = _load(args)
+    logger = _logger(config, args)
+    if not config.secret("ingest", "key"):
+        raise ConfigError(
+            "secrets.toml 里没有 [ingest].key。生成一个再填进去：\n"
+            '  python -c "import secrets;print(secrets.token_hex(16))"\n'
+            '  [ingest]\n  key = "<上面那串>"'
+        )
+    enabled = not getattr(args, "no_notify", False)
+
+    def record(reading: Reading) -> dict[str, Any]:
+        conn = store.connect(config.db_path)
+        try:
+            store.init_db(conn)
+            duplicate = ingest.recent_duplicate(config, conn, reading)
+            if duplicate is not None:
+                logger.info(
+                    "忽略重复上报：%s 元（已有 %s）", reading.balance_yuan, duplicate.captured_at
+                )
+                return {"inserted": False, "duplicate": True}
+            reason = ingest.implausible(config, conn, reading)
+            if reason:
+                title = "收到一条可疑读数，未入库"
+                body = (
+                    f"**房间**：{config.room_key}\n\n"
+                    f"**收到的数值**：{reading.balance_yuan} 元（来源 {reading.source}）\n\n"
+                    f"**为什么可疑**：{reason}\n\n"
+                    f"**时间**：{reading.captured_at}\n\n"
+                    "如果这确实是你刚充值或大额用电后的余额，手工补录：\n"
+                    f"`python -m rest_electric ingest --balance {reading.balance_yuan} --force`"
+                )
+                _send_once(
+                    config, conn, logger, alerts.LEVEL_SUSPECT_READING, title, body, enabled, False
+                )
+                raise ProtocolError(reason)
+            inserted, estimate_result = _record_and_alert(
+                config, conn, reading, logger, enabled=enabled
+            )
+            result: dict[str, Any] = {"inserted": inserted}
+            if estimate_result.days_left is not None:
+                result["days_left"] = round(estimate_result.days_left, 1)
+            return result
+        finally:
+            conn.close()
+
+    ingest.serve(
+        config,
+        record,
+        logger=logger,
+        bind=getattr(args, "bind", None),
+        port=getattr(args, "port", None),
+    )
+    return EXIT_OK
+
+
+def cmd_ingest(args: argparse.Namespace) -> int:
+    """手工补录一条读数（手机上报失败、或读数被差值校验拦下时的兜底）。"""
+    config = _load(args)
+    logger = _logger(config, args)
+    unit = args.unit or config.balance_unit
+    reading = Reading(
+        room_key=config.room_key,
+        balance_cents=to_cents(args.balance, unit),
+        captured_at=args.at or clock.iso(),
+        source=args.source,
+        raw={"ingest": True, "manual": True},
+    )
+
+    conn = store.connect(config.db_path)
+    try:
+        store.init_db(conn)
+        if not args.force:
+            reason = ingest.implausible(config, conn, reading)
+            if reason:
+                raise ProtocolError(reason)
+        inserted, estimate_result = _record_and_alert(
+            config, conn, reading, logger, enabled=not args.no_notify
+        )
+    finally:
+        conn.close()
+
+    print(f"{'已新增' if inserted else '已存在，忽略'}：{reading.balance_yuan} 元 @ {reading.captured_at}")
+    if estimate_result.days_left is not None:
+        print(f"预计可用　{estimate_result.days_left:.1f} 天")
+    return EXIT_OK
+
+
+def cmd_check_stale(args: argparse.Namespace) -> int:
+    """采集端长时间没有新读数时告警。由 systemd timer 定时调用。"""
+    config = _load(args)
+    logger = _logger(config, args)
+
+    conn = store.connect(config.db_path)
+    try:
+        store.init_db(conn)
+        hours = args.hours or config.ingest_stale_hours
+        age = ingest.stale_age_hours(config, conn)
+        if age is not None and age <= hours:
+            print(f"正常：最后一条读数在 {age:.1f} 小时前（阈值 {hours} 小时）")
+            return EXIT_OK
+
+        last = store.last_reading(conn, config.room_key)
+        when = "还没有任何读数" if age is None else f"最后一条读数在 {age:.1f} 小时前"
+        last_text = f"{last.balance_yuan} 元（{last.captured_at}）" if last else "—"
+        title = "电费采集端可能离线"
+        body = (
+            f"**房间**：{config.room_key}\n\n"
+            f"**情况**：{when}（阈值 {hours} 小时）\n\n"
+            f"**最后读数**：{last_text}\n\n"
+            "请检查手机：微信是否还登录着、自动化脚本是否被杀、Wi-Fi 是否正常。"
+        )
+        _send_once(
+            config, conn, logger, alerts.LEVEL_STALE_INGEST, title, body,
+            not getattr(args, "no_notify", False), False,
+        )
+        print(f"异常：{when}")
+        return EXIT_FAIL
+    finally:
+        conn.close()
+
+
+def cmd_epay_cookie(args: argparse.Namespace) -> int:
+    """把浏览器里的 JSESSIONID 写进 Cookie 文件，先跳过自动登录跑通链路。"""
+    config = _load(args)
+    raw = (args.cookie or "").strip()
+    if not raw:
+        raw = input("粘贴 shoucard.shou.edu.cn 的 Cookie（形如 JSESSIONID=xxxx）：").strip()
+    if not raw:
+        raise ConfigError("Cookie 不能为空")
+
+    pairs: list[tuple[str, str]] = []
+    for part in raw.split(";"):
+        if "=" not in part:
+            continue
+        name, value = part.split("=", 1)
+        name, value = name.strip(), value.strip()
+        if name and value:
+            pairs.append((name, value))
+    if not pairs:
+        raise ConfigError("没解析出任何 Cookie，格式应为 name=value; name2=value2")
+
+    path = config.db_path.parent / epay.COOKIE_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["# Netscape HTTP Cookie File"]
+    for name, value in pairs:
+        lines.append(f"shoucard.shou.edu.cn\tFALSE\t/\tFALSE\t0\t{name}\t{value}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if os.name == "posix":
+        os.chmod(path, 0o600)
+
+    print(f"已写入 {path}（{len(pairs)} 个 Cookie，有效期到浏览器会话结束）")
+    print("现在可以直接试：python -m rest_electric once --dry-run")
     return EXIT_OK
 
 
@@ -439,6 +625,14 @@ def cmd_selftest(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 - 自检需要报告任何失败
             results.append(("FAIL", "数据库", str(exc)))
 
+        if config.api_mode == "epay":
+            target = f"{config.epay_base_url}{config.epay_result_path}"
+            results.append(("OK", "接口配置", f"网页版 {target}"))
+            if not config.secret("epay", "username") or not config.secret("epay", "password"):
+                results.append(("WARN", "登录凭证", "[epay].username / password 未填，只能靠已保存的 Cookie"))
+            else:
+                results.append(("OK", "登录凭证", "已配置学号与密码"))
+
         if config.api_mode == "http":
             missing = [
                 name
@@ -494,6 +688,40 @@ def build_parser() -> argparse.ArgumentParser:
     once.add_argument("--dry-run", action="store_true", help="不写库、不推送，只验证链路")
     once.add_argument("--no-notify", action="store_true", help="写库但不推送")
     once.set_defaults(handler=cmd_once)
+
+    serve_ingest = subparsers.add_parser(
+        "serve-ingest", parents=[common], help="常驻接收手机上报的余额（HTTP）"
+    )
+    serve_ingest.add_argument("--bind", default=None, help="覆盖 [ingest].bind")
+    serve_ingest.add_argument("--port", type=int, default=None, help="覆盖 [ingest].port")
+    serve_ingest.add_argument("--no-notify", action="store_true", help="只入库不推送")
+    serve_ingest.set_defaults(handler=cmd_serve_ingest)
+
+    ingest_cmd = subparsers.add_parser("ingest", parents=[common], help="手工补录一条读数")
+    ingest_cmd.add_argument("--balance", required=True, help="余额，例如 24.03")
+    ingest_cmd.add_argument(
+        "--unit", choices=["yuan", "cent"], default="", help="默认用 [api].balance_unit"
+    )
+    ingest_cmd.add_argument("--at", default="", help="ISO 8601 时间，默认现在")
+    ingest_cmd.add_argument("--source", default="manual", help="来源标记，默认 manual")
+    ingest_cmd.add_argument("--force", action="store_true", help="跳过与上一条读数的差值校验")
+    ingest_cmd.add_argument("--no-notify", action="store_true", help="只入库不推送")
+    ingest_cmd.set_defaults(handler=cmd_ingest)
+
+    stale = subparsers.add_parser(
+        "check-stale", parents=[common], help="采集端是否长时间没有上报"
+    )
+    stale.add_argument("--hours", type=int, default=0, help="超过多少小时算离线，默认用配置")
+    stale.add_argument("--no-notify", action="store_true", help="只检查不推送")
+    stale.set_defaults(handler=cmd_check_stale)
+
+    cookie = subparsers.add_parser(
+        "epay-cookie", parents=[common], help="写入网页端 Cookie（先用浏览器会话跑通，跳过自动登录）"
+    )
+    cookie.add_argument(
+        "--cookie", default="", help="形如 JSESSIONID=xxxx；不填则交互输入（建议交互，别留在历史里）"
+    )
+    cookie.set_defaults(handler=cmd_epay_cookie)
 
     report_cmd = subparsers.add_parser("report", parents=[common], help="打印历史报表")
     report_cmd.add_argument("--days", type=int, default=14, help="回看天数，默认 14")

@@ -2,12 +2,12 @@
 
 上海海洋大学「一卡通」微信小程序里能查到宿舍电费余额。本项目把它变成**每天自动记录的本地数据库 + 余额过低时的微信推送**，先在 Windows 上跑通，再原样搬到树莓派 7×24 运行。
 
-> **当前状态：真实接口已接通，但"7×24 全自动"被微信认证卡住。**
-> `python -m rest_electric once` 能查到真实余额（实测 24.10 → 24.03 元）。
-> 阻塞点：token 是 2 小时 JWT，且换取 token 必须提供微信客户端实时生成的一次性 `code`；
-> 实测 CAS 会话、空 code、复用旧 code 全部失败（详见 [docs/decisions-dianfei.md](docs/decisions-dianfei.md) 的 D12）。
-> **树莓派单独无法无人值守**，已选定**半自动**方案（D13）：每天打开一次小程序，token 自动落盘，其余全自动。
-> 另外该服务只在校园网可达（`shoucard.shou.edu.cn` → `172.18.3.170`）。
+> **当前状态：✅ 已跑通——一条 GET 请求就能拿到宿舍电费余额，不需要微信、不需要 token。**
+> `once` 默认 `api.mode = "epay"`：GET `/epay/h5/eleresult?sysid=..&roomid=..&areaid=..&buildid=..`，
+> 返回 HTML（未登录时自动走一遍 CAS：学号+密码），从页面里读「剩余电量 23.57度」入库。
+> 学校 1 度 = 1 元，所以口径与之前完全一致，报表和阈值不用改。
+> 原小程序接口（2 小时 token）保留为 `mode = "http"`；手机读屏上报（`serve-ingest`）保留为备用。
+> 网页端链路的分析见 [docs/epay-web.md](docs/epay-web.md)。
 
 ---
 
@@ -61,6 +61,7 @@ rest_electric/
 | 模块 | 作用 | 协议变更时需要改吗 |
 |---|---|---|
 | `client.py` | 唯一与学校接口打交道的文件：请求、解析、登录态判断 | **是** |
+| `ingest.py` | 手机上报接收器：白名单、密钥、载荷校验、限流 | 否 |
 | `config.py` | 读取并校验 TOML 配置，给人话报错 | 否 |
 | `http.py` | urllib 封装：超时、指数退避重试、5xx/429 判定 | 否 |
 | `store.py` | SQLite：建表、幂等写入、按天取数、告警去重 | 否 |
@@ -78,6 +79,9 @@ rest_electric/
 |---|---|
 | `python -m rest_electric selftest` | 检查版本、配置、数据库、时区、推送通道连通性 |
 | `python -m rest_electric once` | 查一次、落库、判断并推送告警；`--dry-run` 不写库不推送，`--no-notify` 只写库 |
+| `python -m rest_electric serve-ingest` | 常驻接收手机上报的余额（HTTP，需 `[ingest].key`） |
+| `python -m rest_electric ingest --balance 24.03` | 手工补录一条读数；`--force` 跳过与上一条的差值校验 |
+| `python -m rest_electric check-stale` | 采集端多久没上报了；超过 `stale_hours` 推送告警（退出码 2） |
 | `python -m rest_electric report --days 14` | 打印最近 N 天余额、日均、剩余天数；`--csv out.csv` 导出；`--push` 推到微信 |
 | `python -m rest_electric probe --file capture/sample.json` | 用抓到的响应样本验证解析逻辑，不联网、不写库 |
 | `python -m rest_electric refresh-token --token xxx` | 更新 `secrets.toml` 里的 token（人工续期用） |
@@ -86,16 +90,15 @@ rest_electric/
 | `python scripts/import-flow.py --flow <file> --write-capture` | 从 mitmproxy flow 提取 token 写入 secrets.toml，并生成脱敏样本 |
 | `python scripts/import-flow.py --flow <file> --list` | 列出该 flow 里的全部请求，用于找登录接口 |
 
-退出码：`0` 成功；`2` 查询失败（已推送失败通知）；`3` 配置错误；`4` 登录态失效。
+退出码：`0` 成功；`2` 查询失败 / 采集端离线（已推送通知）；`3` 配置错误；`4` 登录态失效。
 
 ---
 
-## 半自动日常流程（当前采用的方案）
+## 半自动日常流程（token 兜底通道，默认不启用）
 
-原因见 [docs/decisions-dianfei.md](docs/decisions-dianfei.md) D12：查询必须用 2 小时有效的 JWT，
+手机上报是主通道。下面这套只在「手机坏了 / 小程序改版读不到」时用来临时补数据。
+原因见 [docs/token-auth-analysis.md](docs/token-auth-analysis.md)：查询必须用 2 小时有效的 JWT，
 而换 token 必须提供微信客户端实时生成的一次性 `code`，服务器无法自己完成。
-
-所以流程设计成「你打开一次小程序，其它全自动」。
 
 ### 一键刷新 token（推荐）
 
@@ -172,16 +175,17 @@ python -m unittest discover -s tests -v
 .\scripts\install-task.ps1 -Uninstall
 ```
 
-**树莓派（以后）**
+**树莓派（现行：网页版 + 定时器）**
 
 ```bash
-sudo bash scripts/deploy-pi.sh          # 复制到 /opt/rest_electric 并安装 systemd 单元
-sudo systemctl enable --now rest-electric.timer
-systemctl list-timers rest-electric.timer
+sudo bash scripts/deploy-pi.sh          # 装 systemd 单元
+systemctl list-timers 'rest-electric*'
 journalctl -u rest-electric.service -n 50
 ```
 
-`rest-electric.timer` 带 `Persistent=true`，断网/关机期间错过的执行会在恢复后补跑一次。
+- `rest-electric.timer` → `once`（`mode = "epay"`），每天 08:07 / 14:07 / 20:07 各一次，带 0–5 分钟抖动；
+- `rest-electric-ingest.service` + `rest-electric-stale.timer`：**备用**的手机上报通道，不用可以不管；
+- 网页端没有 2 小时 token 限制，所以不再需要「抓 token / 打开小程序」这套流程。
 
 ---
 
@@ -206,7 +210,9 @@ journalctl -u rest-electric.service -n 50
 
 ## 文档
 
-- [docs/结论与后续.md](docs/结论与后续.md) — **项目为什么停下、什么条件下值得重启**
+- [docs/phone-automation.md](docs/phone-automation.md) — **现行方案**：手机读屏 + 树莓派接收，含四道验证门与排障
+- [docs/token-auth-analysis.md](docs/token-auth-analysis.md) — **为什么不再折腾 token**：认证机制的只读分析与证据
+- [docs/结论与后续.md](docs/结论与后续.md) — 项目为什么停下、什么条件下值得重启
 - [docs/mitmweb-quickstart.md](docs/mitmweb-quickstart.md) — **第一次用 mitmweb 先看这个**：界面怎么读、代理怎么开、问题对照表
 - [docs/decisions-dianfei.md](docs/decisions-dianfei.md) — 决策记录（结论 + 理由 + 待定项）
 - [docs/feasibility.md](docs/feasibility.md) — 三条自动化路线对比、决策门 G1–G4、合规边界

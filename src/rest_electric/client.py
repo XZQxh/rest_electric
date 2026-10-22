@@ -210,4 +210,8 @@ def make_client(config: Config, logger: logging.Logger | None = None) -> Balance
         return FixtureClient(config)
     if config.api_mode == "http":
         return HttpBalanceClient(config, logger)
+    if config.api_mode == "epay":
+        from .epay import EpayClient  # 延迟导入：网页端与小程序端互不拖累
+
+        return EpayClient(config, logger)
     raise ConfigError(f"未知的 [api].mode：{config.api_mode}")

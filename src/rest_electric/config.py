@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = PROJECT_ROOT / "config" / "config.toml"
 DEFAULT_SECRETS = PROJECT_ROOT / "config" / "secrets.toml"
 
-_API_MODES = {"fixture", "http"}
+_API_MODES = {"fixture", "http", "epay"}
 _NOTIFY_CHANNELS = {"serverchan", "pushplus", "smtp", "none"}
 _UNITS = {"yuan", "cent"}
 _METHODS = {"GET", "POST"}
@@ -55,6 +56,19 @@ class Config:
     extra_body: dict[str, str]
     api_headers: dict[str, str]
     capture_file: Path
+    # [epay] 网页版查询（不需要微信）
+    epay_base_url: str
+    epay_result_path: str
+    epay_sysid: str
+    epay_areaid: str
+    epay_buildid: str
+    # [ingest] 手机采集端上报服务
+    ingest_bind: str
+    ingest_port: int
+    ingest_allow_cidr: tuple[str, ...]
+    ingest_max_skew_seconds: int
+    ingest_stale_hours: int
+    ingest_max_delta_cents: int
     # [notify]
     notify_channel: str
     include_history: bool
@@ -171,6 +185,19 @@ def _opt_str_table(
     return result
 
 
+def _opt_str_list(
+    table: dict[str, Any], key: str, default: tuple[str, ...], section: str = ""
+) -> tuple[str, ...]:
+    """读取字符串数组；缺省返回 default。"""
+    value = table.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        where = f"[{section}].{key}" if section else key
+        raise ConfigError(f"{where} 必须是字符串数组，当前为 {value!r}")
+    return tuple(value)
+
+
 def _resolve(path_text: str) -> Path:
     path = Path(path_text).expanduser()
     if not path.is_absolute():
@@ -234,6 +261,32 @@ def load_config(
 
     secrets, secrets_error = _load_secrets(sec_path)
 
+    # [epay] 网页版查询：不依赖微信，缺省值按学校实际路径
+    epay = data.get("epay") or {}
+    if not isinstance(epay, dict):
+        raise ConfigError("[epay] 必须是表（table）")
+    epay_base_url = _opt_str(epay, "base_url", "https://shoucard.shou.edu.cn").rstrip("/")
+    epay_result_path = _opt_str(epay, "result_path", "/epay/h5/eleresult")
+    if api_mode == "epay" and (not epay_base_url or not epay_result_path):
+        raise ConfigError("[api].mode=epay 需要 [epay].base_url 与 [epay].result_path")
+
+    # [ingest] 缺失时用安全默认值：只听本机、端口 8787
+    ingest = data.get("ingest") or {}
+    if not isinstance(ingest, dict):
+        raise ConfigError("[ingest] 必须是表（table）")
+    ingest_bind = _opt_str(ingest, "bind", "127.0.0.1")
+    ingest_port = _opt_int(ingest, "port", 8787, minimum=1)
+    if ingest_port > 65535:
+        raise ConfigError(f"[ingest].port 必须在 1–65535 之间，当前为 {ingest_port}")
+    ingest_allow_cidr = _opt_str_list(
+        ingest, "allow_cidr", ("127.0.0.1/32", "::1/128"), "ingest"
+    )
+    for item in ingest_allow_cidr:
+        try:
+            ipaddress.ip_network(item, strict=False)
+        except ValueError as exc:
+            raise ConfigError(f"[ingest].allow_cidr 里有非法网段：{item!r}（{exc}）") from exc
+
     return Config(
         room_key=_req_str(room, "room", "room_key"),
         building=_opt_str(room, "building", ""),
@@ -260,6 +313,17 @@ def load_config(
         extra_body=_opt_str_table(api, "extra_body", "api"),
         api_headers=_opt_str_table(api, "headers", "api"),
         capture_file=capture_file,
+        epay_base_url=epay_base_url,
+        epay_result_path=epay_result_path,
+        epay_sysid=_opt_str(epay, "sysid", "1"),
+        epay_areaid=_opt_str(epay, "areaid", "1"),
+        epay_buildid=_opt_str(epay, "buildid", "1"),
+        ingest_bind=ingest_bind,
+        ingest_port=ingest_port,
+        ingest_allow_cidr=ingest_allow_cidr,
+        ingest_max_skew_seconds=_opt_int(ingest, "max_skew_seconds", 900, minimum=0),
+        ingest_stale_hours=_opt_int(ingest, "stale_hours", 30, minimum=1),
+        ingest_max_delta_cents=_opt_int(ingest, "max_delta_cents", 500, minimum=0),
         notify_channel=channel,
         include_history=_opt_bool(notify, "include_history", True),
         config_path=cfg_path,

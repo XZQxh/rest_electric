@@ -10,6 +10,9 @@ LEVEL_LOW_BALANCE = "low_balance"
 LEVEL_PREDICTED_LOW = "predicted_low"
 LEVEL_AUTH_EXPIRED = "auth_expired"
 LEVEL_FETCH_FAILED = "fetch_failed"
+# 手机采集端相关：长时间没有新读数 / 上报的数值明显不合理
+LEVEL_STALE_INGEST = "stale_ingest"
+LEVEL_SUSPECT_READING = "suspect_reading"
 
 # 各类告警的冷却天数：失败类每天最多一次；登录失效每天提醒一次（token 只有 2 小时）
 COOLDOWNS = {
@@ -17,6 +20,8 @@ COOLDOWNS = {
     LEVEL_PREDICTED_LOW: 1,
     LEVEL_AUTH_EXPIRED: 1,
     LEVEL_FETCH_FAILED: 1,
+    LEVEL_STALE_INGEST: 1,
+    LEVEL_SUSPECT_READING: 1,
 }
 
 

@@ -1,11 +1,10 @@
 [Unit]
-Description=每天两次查询宿舍电费
+Description=每天三次网页版查询（不需要微信与 token）
 Documentation=file:///opt/rest_electric/README.md
 
 [Timer]
-# 与 Windows 计划任务保持一致：09:07 / 21:07
-OnCalendar=*-*-* 09:07:00 Asia/Shanghai
-OnCalendar=*-*-* 21:07:00 Asia/Shanghai
+# 网页版通道没有 2 小时 token 限制，按天采点即可
+OnCalendar=*-*-* 08,14,20:07:00 Asia/Shanghai
 # 0-5 分钟随机抖动，避免固定秒级特征
 RandomizedDelaySec=300
 AccuracySec=1min

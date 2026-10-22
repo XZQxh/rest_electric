@@ -1,0 +1,16 @@
+[Unit]
+Description=检查电费采集端是否长时间没有上报
+Documentation=file:///opt/rest_electric/docs/phone-automation.md
+
+[Service]
+Type=oneshot
+User=restelec
+Group=restelec
+WorkingDirectory=/opt/rest_electric
+Environment=PYTHONPATH=/opt/rest_electric/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m rest_electric check-stale
+Nice=10
+
+# 退出码 2 = 判定为离线（此时程序已经推送过告警），不算单元失败
+SuccessExitStatus=2

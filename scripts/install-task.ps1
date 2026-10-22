@@ -1,4 +1,4 @@
-﻿# 注册 / 卸载 Windows 计划任务：每天 09:07 与 21:07 各查一次。
+# 注册 / 卸载 Windows 计划任务：默认每天 08:07 / 14:07 / 20:07 各查一次。
 #
 #   .\scripts\install-task.ps1              # 安装（当前用户，无需管理员）
 #   .\scripts\install-task.ps1 -Uninstall   # 卸载
@@ -8,7 +8,7 @@
 
 [CmdletBinding()]
 param(
-    [string[]]$Times = @("09:07", "21:07"),
+    [string[]]$Times = @("08:07", "14:07", "20:07"),
     [int]$JitterMinutes = 5,
     [switch]$Uninstall
 )
@@ -48,5 +48,5 @@ foreach ($time in $Times) {
 }
 
 Write-Host ""
-Write-Host "查看：schtasks /Query /TN rest_electric_0907 /V /FO LIST"
-Write-Host "立即测试：schtasks /Run /TN rest_electric_0907"
+Write-Host "查看：schtasks /Query /TN rest_electric_0807 /V /FO LIST"
+Write-Host "立即测试：schtasks /Run /TN rest_electric_0807"

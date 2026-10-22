@@ -1,0 +1,29 @@
+[Unit]
+Description=宿舍电费手机上报接收器（常驻）
+Documentation=file:///opt/rest_electric/docs/phone-automation.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=restelec
+Group=restelec
+WorkingDirectory=/opt/rest_electric
+Environment=PYTHONPATH=/opt/rest_electric/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m rest_electric serve-ingest
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+Nice=10
+
+# 最小权限：系统只读，只有 data/ 可写
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/rest_electric/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
