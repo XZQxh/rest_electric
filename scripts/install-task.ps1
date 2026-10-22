@@ -1,4 +1,7 @@
-# 注册 / 卸载 Windows 计划任务：默认每天 08:07 / 14:07 / 20:07 各查一次。
+﻿# 注册 / 卸载 Windows 计划任务：默认白天每 2 小时查一次（08:07–22:07）。
+#
+# 注意：本文件必须保存为 UTF-8 with BOM。Windows PowerShell 5.1 会把无 BOM 的脚本
+# 按 GBK 解析，中文会变成乱码并报「字符串缺少终止符」。
 #
 #   .\scripts\install-task.ps1              # 安装（当前用户，无需管理员）
 #   .\scripts\install-task.ps1 -Uninstall   # 卸载
@@ -8,8 +11,8 @@
 
 [CmdletBinding()]
 param(
-    [string[]]$Times = @("08:07", "14:07", "20:07"),
-    [int]$JitterMinutes = 5,
+    [string[]]$Times = @("08:07", "10:07", "12:07", "14:07", "16:07", "18:07", "20:07", "22:07"),
+    [int]$JitterMinutes = 8,
     [switch]$Uninstall
 )
 
@@ -46,6 +49,15 @@ foreach ($time in $Times) {
     }
     Write-Host "已创建计划任务 $name，每天 $time 执行（抖动 0-$JitterMinutes 分钟）"
 }
+
+# 清理旧版本留下的、这次没在 Times 里的任务（避免 09:07/21:07 之类的残留继续跑）
+$wanted = $Times | ForEach-Object { "rest_electric_$($_.Replace(':', ''))" }
+Get-ScheduledTask -TaskName 'rest_electric_*' -ErrorAction SilentlyContinue |
+    Where-Object { $_.TaskName -notin $wanted } |
+    ForEach-Object {
+        Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false
+        Write-Host "已清理旧任务 $($_.TaskName)"
+    }
 
 Write-Host ""
 Write-Host "查看：schtasks /Query /TN rest_electric_0807 /V /FO LIST"

@@ -1,12 +1,12 @@
 [Unit]
-Description=每天三次网页版查询（不需要微信与 token）
+Description=白天每两小时查一次电费（不需要微信与 token）
 Documentation=file:///opt/rest_electric/README.md
 
 [Timer]
-# 网页版通道没有 2 小时 token 限制，按天采点即可
-OnCalendar=*-*-* 08,14,20:07:00 Asia/Shanghai
-# 0-5 分钟随机抖动，避免固定秒级特征
-RandomizedDelaySec=300
+# 08:00–22:00 每 2 小时一次；夜里不查，减少无意义的登录
+OnCalendar=*-*-* 08/2:07:00 Asia/Shanghai
+# 0-10 分钟随机抖动，避免固定秒级特征
+RandomizedDelaySec=600
 AccuracySec=1min
 # 断网/关机期间错过的执行，开机后补跑一次
 Persistent=true
