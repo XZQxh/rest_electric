@@ -6,7 +6,7 @@
 #
 # 特性：不覆盖已有的 config/config.toml 与 config/secrets.toml。
 # 主通道是 `once`（api.mode = "epay"，走网页版，不需要微信与 token），
-# 由 rest-electric.timer 每天跑 3 次；手机上报接收器作为备用通道常驻。
+# 由 rest-electric.timer 白天每 2 小时跑一次；手机上报接收器作为备用通道常驻。
 
 set -euo pipefail
 
@@ -92,7 +92,7 @@ cp "${SRC}/scripts/systemd/rest-electric-stale.timer" /etc/systemd/system/rest-e
 
 systemctl daemon-reload
 
-# 主通道：网页版查询（api.mode = "epay"），每天 3 次
+# 主通道：网页版查询（api.mode = "epay"），白天每 2 小时一次
 systemctl enable rest-electric.timer
 systemctl restart rest-electric.timer
 

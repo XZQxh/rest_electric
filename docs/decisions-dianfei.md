@@ -211,7 +211,7 @@ CAS 登录本身是「可自动化」的（无验证码、RSA 密码、execution
 - 该接口是"给网页用的"，不是公开 API，学校随时可能改。
 
 **配套改动**：新增 `epay.py`（RSA + CAS 登录 + HTML 解析 + Cookie 复用）、
-`[epay]` 配置与密钥、`api.mode = "epay"`；`rest-electric.timer` 改为每天 3 次；
+`[epay]` 配置与密钥、`api.mode = "epay"`；`rest-electric.timer` 改为白天每 2 小时一次；
 手机上报通道（D14）降级为备用。
 
 ---

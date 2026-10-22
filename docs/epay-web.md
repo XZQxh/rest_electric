@@ -85,7 +85,7 @@ python -m rest_electric once --dry-run     # 只查一次，不写库不推送
 python -m rest_electric once               # 写库 + 按需告警
 ```
 
-Pi 上由 `rest-electric.timer` 每天 08:07 / 14:07 / 20:07 各跑一次（带 0–5 分钟抖动）。
+Pi 上由 `rest-electric.timer` 白天 08:07–22:07 每 2 小时跑一次（带 0–10 分钟抖动）。
 
 ## 5. 会话与登录
 
@@ -100,7 +100,7 @@ Pi 上由 `rest-electric.timer` 每天 08:07 / 14:07 / 20:07 各跑一次（带 
 | 密码存哪 | 只在本机 `config/secrets.toml`（600），不写日志、不进库、不进 git |
 | 会话存哪 | `data/epay-cookies.txt`（600），可随时删掉，下次自动重登 |
 | 只读 | **只发 GET 查询 + 一次登录 POST**；充值接口（页面里的 `doNext()` POST）永不调用 |
-| 频率 | 每天 3 次，远低于人工使用强度 |
+| 频率 | 白天每 2 小时一次（8 次/天），远低于人工使用强度 |
 | 房间 | 只查 `[room].room` 这一个房间，且校验服务端返回的房间号 |
 
 ## 7. 失败模式

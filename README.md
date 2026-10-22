@@ -183,7 +183,7 @@ systemctl list-timers 'rest-electric*'
 journalctl -u rest-electric.service -n 50
 ```
 
-- `rest-electric.timer` → `once`（`mode = "epay"`），每天 08:07 / 14:07 / 20:07 各一次，带 0–5 分钟抖动；
+- `rest-electric.timer` → `once`（`mode = "epay"`），白天 **08:07–22:07 每 2 小时**一次（共 8 次），带 0–10 分钟抖动；
 - `rest-electric-ingest.service` + `rest-electric-stale.timer`：**备用**的手机上报通道，不用可以不管；
 - 网页端没有 2 小时 token 限制，所以不再需要「抓 token / 打开小程序」这套流程。
 
