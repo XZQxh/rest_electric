@@ -1,0 +1,39 @@
+# 本地配置与密钥：绝对不要提交
+config/config.toml
+config/secrets.toml
+config/secrets.toml.*
+config/config.toml.*
+config/*.bak
+!config/secrets.example.toml
+!config/config.example.toml
+
+# 运行时数据
+data/
+logs/
+.test-tmp/
+.tmp/
+*.db
+*.db-wal
+*.db-shm
+
+# 抓包原始产物：含真实 token / 个人信息
+capture/*.flow
+capture/*.har
+capture/*.txt
+capture/*.json
+!capture/README.md
+!capture/sample_response.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

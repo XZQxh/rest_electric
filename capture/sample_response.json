@@ -1,0 +1,17 @@
+{
+  "retcode": "0",
+  "retmsg": "成功",
+  "retEnMsg": null,
+  "data": {
+    "retcode": 0,
+    "retmsg": "success",
+    "elcsysid": 1,
+    "areaId": "1",
+    "buiId": "1",
+    "roomId": "11010610",
+    "roomName": "***",
+    "restElecDegree": 24.03,
+    "rest": 0.0,
+    "degreelist": null
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "roomName": "A栋305",
+    "balance": "25.30",
+    "queryTime": "2026-10-21 09:07:12"
+  }
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=宿舍电费查询（单次执行）
+Documentation=file:///opt/rest_electric/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=restelec
+Group=restelec
+WorkingDirectory=/opt/rest_electric
+Environment=PYTHONPATH=/opt/rest_electric/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m rest_electric once
+TimeoutStartSec=300
+Nice=10
+# 失败由程序自己推送告警，这里不重复重启

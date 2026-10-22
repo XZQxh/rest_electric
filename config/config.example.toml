@@ -1,0 +1,73 @@
+# 复制为 config/config.toml 后按需修改。此文件不含任何密钥。
+# 路径相对于项目根目录；绝对路径也可以。
+#
+# 本文件已按实际抓包结果配置好：上海海洋大学「一卡通」小程序
+# 接口 POST https://shoucard.shou.edu.cn/openservice/miniprogram/queryroominfo
+# 余额字段 data.restElecDegree（单位：元）
+
+[room]
+# 数据分区键，只用于本地数据库与报表显示
+room_key = "11010610"
+# 接口里的楼栋号（请求体 buildid）与房间号（请求体 roomid）
+building = "1"
+room = "11010610"
+
+[storage]
+db_path = "data/electric.db"
+# 是否把原始响应存进 raw_json（便于协议变更时回溯）。响应很小，建议保留。
+keep_raw = true
+
+[alert]
+# 余额低于该值（分）告警：2000 = 20 元
+balance_floor_cents = 2000
+# 预计剩余天数低于该值告警；数据不足 2 天时不参与判断
+days_left_warn = 3.0
+# 计算日均时回看的天数
+window_days = 7
+# 定时任务启动后的随机抖动上限（分钟），避免固定秒级特征
+jitter_minutes = 5
+
+[http]
+timeout_seconds = 15
+# 网络错误/5xx 的重试次数（含首次）
+attempts = 3
+# 必须和小程序一致，否则可能被拒。抓包得到后原样复制。
+user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF WindowsWechat(0x63090a13) UnifiedPCWindowsWechat(0xf2541f38) XWEB/25799"
+
+[api]
+# fixture: 用本地样本，不联网（保证开箱可跑）
+# http:    真实请求
+mode = "http"
+base_url = "https://shoucard.shou.edu.cn"
+balance_path = "/openservice/miniprogram/queryroominfo"
+method = "POST"
+# 楼栋/房间号在请求体里的字段名
+building_param = "buildid"
+room_param = "roomid"
+# 余额在响应 JSON 里的点号路径
+balance_field = "data.restElecDegree"
+# 单位：元（接口返回 24.1）或分（接口返回 2410）
+balance_unit = "yuan"
+# token 放在哪个请求头。本接口是自定义头 sw-Authorization
+token_header = "sw-Authorization"
+# token 前缀。本接口是 "Bearer "（注意末尾空格）
+token_prefix = "Bearer "
+# fixture 模式读取的文件
+capture_file = "capture/sample_response.json"
+
+# 请求体里的固定字段（每次请求都要带）
+[api.extra_body]
+elcsysid = "1"
+areaid = "1"
+
+# 固定请求头。Referer 里的 appid 与版本号来自抓包，接口可能会校验。
+[api.headers]
+Referer = "https://servicewechat.com/wx2bd5919ee8323801/8/page-frame.html"
+xweb_xhr = "1"
+charset = "utf-8"
+
+[notify]
+# serverchan | pushplus | smtp | none
+channel = "serverchan"
+# 推送内容里是否附带最近 7 天余额
+include_history = true

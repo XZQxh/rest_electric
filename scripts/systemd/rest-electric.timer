@@ -1,0 +1,17 @@
+[Unit]
+Description=每天两次查询宿舍电费
+Documentation=file:///opt/rest_electric/README.md
+
+[Timer]
+# 与 Windows 计划任务保持一致：09:07 / 21:07
+OnCalendar=*-*-* 09:07:00 Asia/Shanghai
+OnCalendar=*-*-* 21:07:00 Asia/Shanghai
+# 0-5 分钟随机抖动，避免固定秒级特征
+RandomizedDelaySec=300
+AccuracySec=1min
+# 断网/关机期间错过的执行，开机后补跑一次
+Persistent=true
+Unit=rest-electric.service
+
+[Install]
+WantedBy=timers.target
