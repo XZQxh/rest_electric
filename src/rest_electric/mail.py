@@ -166,7 +166,11 @@ def _html_body(
         _metric(
             "当前余额",
             f"{yuan(last_balance)} 元" if last_balance is not None else "暂无数据",
-            f"最后读数 {last_day.isoformat()}" if last_day else "",
+            (
+                f"最后读数 {last_reading.captured_at[:16].replace('T', ' ')}"
+                if last_reading is not None
+                else (f"最后读数 {last_day.isoformat()}" if last_day else "")
+            ),
         )
     )
     parts.append(_metric("今日用电", _usage_text(today_item), "截至最后一次采集"))
@@ -183,11 +187,15 @@ def _html_body(
                 f'<img src="cid:{BALANCE_CID}" alt="余额趋势图" width="1000" '
                 'style="display:block;width:100%;max-width:1000px;height:auto;'
                 'border:1px solid #e5e7eb;border-radius:8px;">',
+                '<p style="font-size:12px;color:#6b7280;margin:4px 0 0;">'
+                "纵轴单位：元</p>",
                 '<h2 style="font-size:15px;color:#111827;margin:18px 0 8px;">'
                 f"每日用电（最近 {days} 天，绿点是充值）</h2>",
                 f'<img src="cid:{USAGE_CID}" alt="每日用电柱状图" width="1000" '
                 'style="display:block;width:100%;max-width:1000px;height:auto;'
                 'border:1px solid #e5e7eb;border-radius:8px;">',
+                '<p style="font-size:12px;color:#6b7280;margin:4px 0 0;">'
+                "纵轴单位：元；柱子为当天真实消耗（已加回充值）</p>",
             ]
         )
     else:
@@ -339,7 +347,9 @@ def build_daily_email(
     )
     alerts = list(alerts or [])[:ALERT_DAYS]
     subject = subject_of(today, points, estimate)
-    text = report.render(config, points, estimate, alerts, days=days)
+    text = report.render(
+        config, points, estimate, alerts, days=days, last_reading=last_reading
+    )
 
     images: list[tuple[str, bytes, str]] = []
     if len(points) >= 2 and len(usages) >= 2:

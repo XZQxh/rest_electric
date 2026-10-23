@@ -170,7 +170,9 @@ class MailTest(unittest.TestCase):
         self.assertIn("宿舍电费报表", plain)
         self.assertIn("日均用电", plain)
         # 纯文本版必须和 report.render() 的输出一致（生成时间那一行会比对上晚一点）
-        expected = report.render(config, points, estimate(points), [], days=14)
+        expected = report.render(
+            config, points, estimate(points), [], days=14, last_reading=readings[-1]
+        )
         self.assertEqual(self._without_time(plain), self._without_time(expected))
 
         subject = str(parsed["Subject"])

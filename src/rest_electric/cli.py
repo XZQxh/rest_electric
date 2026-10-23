@@ -536,6 +536,7 @@ def cmd_report(args: argparse.Namespace) -> int:
         estimate_result,
         alerts,
         days=days,
+        last_reading=store.last_reading(conn, config.room_key),
     )
     print(text)
     csv_path = getattr(args, "csv", None)

@@ -9,7 +9,7 @@ from pathlib import Path
 from . import clock
 from .config import Config
 from .forecast import Estimate
-from .models import AlertRecord, yuan
+from .models import AlertRecord, Reading, yuan
 
 LEVEL_LABELS = {
     "low_balance": "余额偏低",
@@ -40,6 +40,7 @@ def render(
     estimate: Estimate,
     alerts: list[AlertRecord] | None = None,
     days: int = 14,
+    last_reading: Reading | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append(f"宿舍电费报表　房间 {config.room_key}")
@@ -61,7 +62,11 @@ def render(
 
     lines.append("-" * 52)
     last_day, last_balance = points[-1]
-    lines.append(f"当前余额　{yuan(last_balance)} 元（{last_day.isoformat()}）")
+    if last_reading is not None:
+        captured = last_reading.captured_at[:16].replace("T", " ")
+        lines.append(f"当前余额　{yuan(last_balance)} 元（最后读数 {captured}）")
+    else:
+        lines.append(f"当前余额　{yuan(last_balance)} 元（{last_day.isoformat()}）")
 
     if estimate.daily_cents is None:
         lines.append(f"日均用电　无法计算（{estimate.reason}）")

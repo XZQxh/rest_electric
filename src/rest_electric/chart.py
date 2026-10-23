@@ -46,6 +46,7 @@ _GLYPHS = {
     "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
     "9": ("01110", "10001", "10001", "01111", "00001", "00010", "01100"),
     "-": ("00000", "00000", "00000", "11111", "00000", "00000", "00000"),
+    "+": ("00000", "00100", "00100", "11111", "00100", "00100", "00000"),
     ".": ("00000", "00000", "00000", "00000", "00000", "00110", "00110"),
     ":": ("00000", "00110", "00110", "00000", "00110", "00110", "00000"),
     "/": ("00001", "00010", "00010", "00100", "01000", "01000", "10000"),
@@ -280,7 +281,7 @@ def bar_chart(
     width: int = 1000,
     height: int = 360,
 ) -> bytes:
-    """每日消耗。柱子是「真实消耗」（已把当天充值加回去），充值日用绿点+金额标出。"""
+    """每日消耗（纵轴单位：元）。柱子是「真实消耗」（已把当天充值加回去），充值日用绿点+金额标出。"""
     if len(days) < 2:
         raise ValueError("至少需要两天数据")
 
@@ -289,9 +290,9 @@ def bar_chart(
     plot_l, plot_r = left * SCALE, (width - right) * SCALE
     plot_t, plot_b = top * SCALE, (height - bottom) * SCALE
 
-    values = [max(0, item.used_cents) for item in days]
+    values = [max(0, item.used_cents) / 100.0 for item in days]
     known = [value for value in values if value > 0]
-    high = (max(known) if known else 100) * 1.35  # 顶部留出标记充值金额的位置
+    high = (max(known) if known else 1.0) * 1.35  # 顶部留出标记充值金额的位置
 
     def y_of(value: float) -> int:
         return int(plot_b - (value / high) * (plot_b - plot_t))
