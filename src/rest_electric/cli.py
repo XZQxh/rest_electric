@@ -659,7 +659,7 @@ def cmd_token_status(args: argparse.Namespace) -> int:
     token = config.secret("api", "token")
     if not token:
         print("secrets.toml 里没有 token。", file=sys.stderr)
-        print("请先运行 proxy-on.ps1 和 mitmweb -s scripts\\token_watcher.py，然后打开一次小程序。")
+        print("HTTP 模式需要把小程序接口的 token 填进 [api].token（见 README「HTTP 模式」一节）。")
         return EXIT_AUTH
 
     raw = token[len("Bearer ") :] if token.startswith("Bearer ") else token
@@ -885,3 +885,8 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("已中断", file=sys.stderr)
         return 130
+
+
+def console() -> None:
+    """`rest-electric` 命令行入口：把返回值转成进程退出码。"""
+    raise SystemExit(main())
