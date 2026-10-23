@@ -137,6 +137,30 @@ def daily_points(
     return points
 
 
+def readings_since(conn: sqlite3.Connection, room_key: str, since: date) -> list[Reading]:
+    """取 `since`（含当天）之后的全部原始读数，按时间升序。
+
+    充值识别需要区间级别的读数（余额上升 = 充值），不能用按天最后一条。
+    数据量很小（每天 8 条），直接在 Python 里按本地日期过滤，避免字符串比较
+    受时区偏移或老数据格式影响。
+    """
+    rows = conn.execute(
+        "SELECT room_key, balance_cents, captured_at, source FROM readings "
+        "WHERE room_key = ? ORDER BY captured_at",
+        (room_key,),
+    ).fetchall()
+    return [
+        Reading(
+            room_key=row["room_key"],
+            balance_cents=row["balance_cents"],
+            captured_at=row["captured_at"],
+            source=row["source"],
+        )
+        for row in rows
+        if parse_day(row["captured_at"]) >= since
+    ]
+
+
 def already_alerted(
     conn: sqlite3.Connection,
     room_key: str,

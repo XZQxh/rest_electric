@@ -40,6 +40,13 @@
 
 用于记录 `schema_version`、`last_success_at`、`last_error` 等，供 `report` 与 `selftest` 使用。
 
+邮件日报另外写两个键：
+
+| 键 | 值 | 用途 |
+|---|---|---|
+| `daily_report_sent` | `YYYY-MM-DD` | 当天是否发过日报 |
+| `daily_report_sent_at` | ISO 8601 时间 | 3 小时去重窗口，覆盖 23:20 / 23:40 的失败重试 |
+
 ---
 
 ## 派生数据（不落库，运行时计算）

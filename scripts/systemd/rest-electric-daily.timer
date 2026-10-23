@@ -1,0 +1,17 @@
+[Unit]
+Description=每天 23:00 发电费日报邮件（失败在 23:20 / 23:40 重试）
+Documentation=file:///opt/rest_electric/README.md
+
+[Timer]
+# 23:00 正常发送；失败后 23:20、23:40 各重试一次。
+# 同一天靠 meta.daily_report_sent + daily_report_sent_at 去重，成功后重试会直接跳过。
+OnCalendar=*-*-* 23:00:00 Asia/Shanghai
+OnCalendar=*-*-* 23:20:00 Asia/Shanghai
+OnCalendar=*-*-* 23:40:00 Asia/Shanghai
+AccuracySec=1min
+# 不做开机补发：错过就等第二天，避免第二天早上补发后晚上又发一封
+Persistent=false
+Unit=rest-electric-daily.service
+
+[Install]
+WantedBy=timers.target

@@ -98,3 +98,14 @@ max_delta_cents = 2000
 channel = "serverchan"
 # 推送内容里是否附带最近 7 天余额
 include_history = true
+
+# 每日邮件日报（python -m rest_electric report --email）
+# 由 rest-electric-daily.timer 每天 23:00 触发，失败在 23:20 / 23:40 重试。
+# 发送走 [notify].smtp_*（见 secrets.example.toml），与上面的 channel 互不影响：
+# 日报走邮件，余额过低/登录失败等突发告警继续走 Server酱。
+[report]
+enabled = true
+# 图和明细默认回看的天数
+chart_days = 14
+# 收件人。留空则复用 [notify].smtp_to
+to = ""

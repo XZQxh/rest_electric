@@ -160,6 +160,10 @@ class SmtpNotifier:
         message["From"] = self._sender
         message["To"] = self._to
         message.set_content(body)
+        self.send_message(message)
+
+    def send_message(self, message: EmailMessage) -> None:
+        """发送一条已经组装好的邮件（日报要用 HTML + 内嵌图，不能走纯文本的 send）。"""
         try:
             if self._port == 465:
                 with smtplib.SMTP_SSL(self._host, self._port, timeout=self._timeout) as smtp:
@@ -172,6 +176,22 @@ class SmtpNotifier:
                     smtp.send_message(message)
         except (smtplib.SMTPException, OSError) as exc:
             raise NotifierError(f"SMTP 发送失败：{exc}") from exc
+
+
+def smtp_notifier(config: Config, *, to: str = "") -> SmtpNotifier:
+    """按 [notify] 里的 SMTP 配置构造发送器；`to` 可覆盖收件人（日报用）。"""
+    raw_port = config.secret("notify", "smtp_port") or "465"
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise NotifierError(f"[notify].smtp_port 不是整数：{raw_port!r}") from exc
+    return SmtpNotifier(
+        host=config.secret("notify", "smtp_host"),
+        port=port,
+        user=config.secret("notify", "smtp_user"),
+        password=config.secret("notify", "smtp_password"),
+        to=to or config.secret("notify", "smtp_to"),
+    )
 
 
 def make_notifier(config: Config, logger: logging.Logger | None = None) -> Notifier:
@@ -191,11 +211,5 @@ def make_notifier(config: Config, logger: logging.Logger | None = None) -> Notif
             attempts=config.http_attempts,
         )
     if channel == "smtp":
-        return SmtpNotifier(
-            host=config.secret("notify", "smtp_host"),
-            port=int(config.secret("notify", "smtp_port") or 465),
-            user=config.secret("notify", "smtp_user"),
-            password=config.secret("notify", "smtp_password"),
-            to=config.secret("notify", "smtp_to"),
-        )
+        return smtp_notifier(config)
     raise NotifierError(f"未知推送通道：{channel}")

@@ -72,6 +72,10 @@ class Config:
     # [notify]
     notify_channel: str
     include_history: bool
+    # [report] 每日邮件日报
+    report_enabled: bool
+    report_chart_days: int
+    report_to: str
     # 元信息
     config_path: Path
     secrets_path: Path | None
@@ -91,6 +95,10 @@ class Config:
         if not isinstance(raw, dict):
             return {}
         return {str(k): str(v) for k, v in raw.items()}
+
+    def report_recipient(self) -> str:
+        """日报收件人：[report].to 优先，缺省复用 [notify].smtp_to。"""
+        return self.report_to or self.secret("notify", "smtp_to")
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
@@ -240,6 +248,16 @@ def load_config(
     if channel not in _NOTIFY_CHANNELS:
         raise ConfigError(f"[notify].channel 只能是 {sorted(_NOTIFY_CHANNELS)}，当前为 {channel!r}")
 
+    # [report] 每日邮件日报；整段可缺省（老配置文件无需改动）
+    report = data.get("report") or {}
+    if not isinstance(report, dict):
+        raise ConfigError("[report] 必须是表（table）")
+    report_enabled = _opt_bool(report, "enabled", True)
+    report_chart_days = _opt_int(report, "chart_days", 14, minimum=2)
+    if report_chart_days > 365:
+        raise ConfigError(f"[report].chart_days 不能大于 365，当前为 {report_chart_days}")
+    report_to = _opt_str(report, "to", "")
+
     unit = _opt_str(api, "balance_unit", "yuan").lower()
     if unit not in _UNITS:
         raise ConfigError(f"[api].balance_unit 只能是 {sorted(_UNITS)}，当前为 {unit!r}")
@@ -326,6 +344,9 @@ def load_config(
         ingest_max_delta_cents=_opt_int(ingest, "max_delta_cents", 500, minimum=0),
         notify_channel=channel,
         include_history=_opt_bool(notify, "include_history", True),
+        report_enabled=report_enabled,
+        report_chart_days=report_chart_days,
+        report_to=report_to,
         config_path=cfg_path,
         secrets_path=sec_path if sec_path.exists() else None,
         secrets=secrets,

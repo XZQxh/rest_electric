@@ -1,0 +1,17 @@
+[Unit]
+Description=发送电费日报邮件（含 14 天图表）
+Documentation=file:///opt/rest_electric/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=restelec
+Group=restelec
+WorkingDirectory=/opt/rest_electric
+Environment=PYTHONPATH=/opt/rest_electric/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m rest_electric report --email
+TimeoutStartSec=300
+Nice=10
+# 失败退出码交给 timer 在 23:20 / 23:40 重试；程序自己也会通过 Server酱 补一条告警

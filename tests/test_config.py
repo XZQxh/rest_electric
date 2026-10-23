@@ -135,6 +135,34 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.secrets, {})
         self.assertTrue(config.secrets_error)
 
+    def test_report_defaults(self) -> None:
+        config = load_config(self._write(VALID))
+        self.assertTrue(config.report_enabled)
+        self.assertEqual(config.report_chart_days, 14)
+        self.assertEqual(config.report_to, "")
+        self.assertEqual(config.report_recipient(), "")
+
+    def test_report_section(self) -> None:
+        text = VALID + '\n[report]\nenabled = false\nchart_days = 7\nto = "me@example.com"\n'
+        config = load_config(self._write(text))
+        self.assertFalse(config.report_enabled)
+        self.assertEqual(config.report_chart_days, 7)
+        self.assertEqual(config.report_to, "me@example.com")
+        self.assertEqual(config.report_recipient(), "me@example.com")
+
+    def test_report_to_falls_back_to_smtp_to(self) -> None:
+        cfg_path = self._write(VALID + '\n[report]\nto = ""\n')
+        secrets = self._write(
+            '[notify]\nsmtp_to = "fallback@example.com"\n', "secrets.toml"
+        )
+        config = load_config(cfg_path, secrets)
+        self.assertEqual(config.report_recipient(), "fallback@example.com")
+
+    def test_report_chart_days_too_small(self) -> None:
+        text = VALID + "\n[report]\nchart_days = 1\n"
+        with self.assertRaises(ConfigError):
+            load_config(self._write(text))
+
 
 if __name__ == "__main__":
     unittest.main()

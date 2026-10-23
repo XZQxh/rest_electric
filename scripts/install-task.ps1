@@ -47,7 +47,10 @@ foreach ($time in $Times) {
         Write-Error "创建计划任务 $name 失败（退出码 $LASTEXITCODE）"
         exit 2
     }
-    Write-Host "已创建计划任务 $name，每天 $time 执行（抖动 0-$JitterMinutes 分钟）"
+    # 错过的时间点（比如当时关机）在开机后补跑一次；用电池时也照常跑
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    Set-ScheduledTask -TaskName $name -Settings $settings | Out-Null
+    Write-Host "已创建计划任务 $name，每天 $time 执行（抖动 0-$JitterMinutes 分钟，错过会补跑）"
 }
 
 # 清理旧版本留下的、这次没在 Times 里的任务（避免 09:07/21:07 之类的残留继续跑）

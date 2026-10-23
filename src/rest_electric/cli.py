@@ -13,7 +13,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from . import __version__, alerts, clock, epay, ingest, log, notify, report, store
+from . import __version__, alerts, clock, epay, ingest, log, mail, notify, report, store, usage
 from .client import get_path, make_client
 from .config import DEFAULT_SECRETS, Config, load_config
 from .errors import (
@@ -31,6 +31,10 @@ EXIT_OK = 0
 EXIT_FAIL = 2
 EXIT_CONFIG = 3
 EXIT_AUTH = 4
+
+# 日报去重窗口：覆盖 23:00 / 23:20 / 23:40 三次触发，
+# 但不至于让白天手动发过之后晚上的定时任务被跳过。
+REPORT_DEDUPE_HOURS = 3
 
 
 # ---------------------------------------------------------------- 通用工具
@@ -430,18 +434,107 @@ def cmd_epay_cookie(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _recent_report_sent(conn: Any) -> str:
+    """今天最近一次成功发送的时间；超过去重窗口或不是今天则返回空串。"""
+    if store.get_meta(conn, "daily_report_sent") != clock.today().isoformat():
+        return ""
+    sent_at = store.get_meta(conn, "daily_report_sent_at")
+    if not sent_at:
+        return clock.today().isoformat()
+    try:
+        moment = datetime.datetime.fromisoformat(sent_at)
+        age = (clock.now() - moment).total_seconds()
+    except (TypeError, ValueError):
+        return sent_at
+    return sent_at if age < REPORT_DEDUPE_HOURS * 3600 else ""
+
+
+def _notify_report_failure(config: Config, logger: Any, error: Exception) -> None:
+    """SMTP 失败时，如果另配了微信通道就补一条告警；失败也不影响退出码。"""
+    if config.notify_channel in ("none", "smtp"):
+        return
+    body = (
+        f"**房间**：{config.room_key}\n\n"
+        f"**错误**：{error}\n\n"
+        f"**时间**：{clock.iso()}\n\n"
+        "日报没有发出去，请检查 SMTP 配置或网络后手动重发：\n"
+        "`python -m rest_electric report --email --force`"
+    )
+    try:
+        notify.make_notifier(config, logger).send("电费日报发送失败", body)
+    except RestElectricError as exc:
+        logger.error("日报失败通知也没发出去：%s", exc)
+
+
+def _send_report_email(
+    config: Config,
+    conn: Any,
+    logger: Any,
+    *,
+    days: int,
+    force: bool,
+) -> int:
+    if not config.report_enabled and not force:
+        print("日报已在配置中禁用（[report].enabled = false），跳过。")
+        return EXIT_OK
+
+    if not force:
+        sent_at = _recent_report_sent(conn)
+        if sent_at:
+            print(f"今天已经发过日报（{sent_at}），跳过；加 --force 可重发。")
+            return EXIT_OK
+
+    cutoff = clock.today() - datetime.timedelta(days=max(1, days) - 1)
+    points = store.daily_points(conn, config.room_key, days)
+    estimate_result = estimate(points)
+    alerts = store.recent_alerts(conn, config.room_key)[:3]
+    readings = store.readings_since(
+        conn, config.room_key, cutoff - datetime.timedelta(days=1)
+    )
+    day_usages = [item for item in usage.daily_usage(readings) if item.day >= cutoff]
+
+    message = mail.build_daily_email(
+        config,
+        points,
+        estimate_result,
+        alerts,
+        day_usages=day_usages,
+        days=days,
+        last_reading=store.last_reading(conn, config.room_key),
+    )
+    try:
+        mail.send_daily_email(config, message)
+    except NotifierError as exc:
+        logger.error("日报发送失败：%s", exc)
+        _notify_report_failure(config, logger, exc)
+        print(f"日报邮件发送失败：{exc}", file=sys.stderr)
+        return EXIT_FAIL
+
+    store.set_meta(conn, "daily_report_sent", clock.today().isoformat())
+    store.set_meta(conn, "daily_report_sent_at", clock.iso())
+    logger.info("已发送日报邮件：%s（%s 天）", message["To"], days)
+    print(f"已发送日报邮件：{message['To']}（{days} 天）")
+    return EXIT_OK
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     config = _load(args)
     conn = store.connect(config.db_path)
     store.init_db(conn)
-    days = int(getattr(args, "days", 14) or 14)
+    days = int(getattr(args, "days", None) or 14)
+    email = bool(getattr(args, "email", False))
+    if email and getattr(args, "days", None) is None:
+        days = config.report_chart_days
     points = store.daily_points(conn, config.room_key, days)
     estimate_result = estimate(points)
+    alerts = store.recent_alerts(conn, config.room_key)
+    if email:
+        alerts = alerts[:3]
     text = report.render(
         config,
         points,
         estimate_result,
-        store.recent_alerts(conn, config.room_key),
+        alerts,
         days=days,
     )
     print(text)
@@ -460,6 +553,16 @@ def cmd_report(args: argparse.Namespace) -> int:
             print(f"推送失败：{exc}", file=sys.stderr)
             return EXIT_FAIL
         print("\n已推送到微信。")
+
+    if email:
+        logger = _logger(config, args)
+        return _send_report_email(
+            config,
+            conn,
+            logger,
+            days=days,
+            force=bool(getattr(args, "force", False)),
+        )
     return EXIT_OK
 
 
@@ -724,9 +827,15 @@ def build_parser() -> argparse.ArgumentParser:
     cookie.set_defaults(handler=cmd_epay_cookie)
 
     report_cmd = subparsers.add_parser("report", parents=[common], help="打印历史报表")
-    report_cmd.add_argument("--days", type=int, default=14, help="回看天数，默认 14")
+    report_cmd.add_argument(
+        "--days", type=int, default=None, help="回看天数，默认 14（邮件日报默认取 [report].chart_days）"
+    )
     report_cmd.add_argument("--csv", type=Path, default=None, help="导出 CSV 的路径")
     report_cmd.add_argument("--push", action="store_true", help="把报表推送到微信")
+    report_cmd.add_argument("--email", action="store_true", help="发送每日邮件日报（含图表）")
+    report_cmd.add_argument(
+        "--force", action="store_true", help="忽略同日去重与 [report].enabled，强制发送日报"
+    )
     report_cmd.set_defaults(handler=cmd_report)
 
     probe = subparsers.add_parser("probe", parents=[common], help="用样本文件验证解析逻辑")

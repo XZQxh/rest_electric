@@ -70,6 +70,15 @@ class StoreTest(unittest.TestCase):
         points = store.daily_points(self.conn, "A-305", days=2)
         self.assertEqual([value for _, value in points], [7000])
 
+    def test_readings_since_filters_by_local_day(self) -> None:
+        for offset, balance in ((2, 3000), (0, 1000), (1, 2000)):
+            day = today() - timedelta(days=offset)
+            store.insert_reading(
+                self.conn, _reading(balance, f"{day.isoformat()}T09:00:00+08:00")
+            )
+        rows = store.readings_since(self.conn, "A-305", today() - timedelta(days=1))
+        self.assertEqual([item.balance_cents for item in rows], [2000, 1000])
+
     def test_raw_json_respects_keep_raw(self) -> None:
         reading = Reading(
             room_key="A-305",

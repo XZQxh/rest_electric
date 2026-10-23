@@ -8,6 +8,10 @@
 > 学校 1 度 = 1 元，所以口径与之前完全一致，报表和阈值不用改。
 > 原小程序接口（2 小时 token）保留为 `mode = "http"`；手机读屏上报（`serve-ingest`）保留为备用。
 > 网页端链路的分析见 [docs/epay-web.md](docs/epay-web.md)。
+>
+> **每日 23:00 还会发一封带 14 天图表的邮件日报**：`python -m rest_electric report --email`，
+> 纯标准库手写 PNG、CID 内嵌，不引入 matplotlib/Pillow。设计见
+> [docs/email-report-design.md](docs/email-report-design.md)。
 
 ---
 
@@ -33,6 +37,9 @@ python -m rest_electric once --no-notify
 
 # 5. 看报表
 python -m rest_electric report --days 14
+
+# 6. 发一封日报到邮箱（先在 secrets.toml 填好 [notify].smtp_*）
+python -m rest_electric report --email --force
 ```
 
 Windows 下如果不想每次设 `PYTHONPATH`，直接用 `scripts\run-once.ps1`（脚本会自动设置）。
@@ -64,12 +71,15 @@ rest_electric/
 | `ingest.py` | 手机上报接收器：白名单、密钥、载荷校验、限流 | 否 |
 | `config.py` | 读取并校验 TOML 配置，给人话报错 | 否 |
 | `http.py` | urllib 封装：超时、指数退避重试、5xx/429 判定 | 否 |
-| `store.py` | SQLite：建表、幂等写入、按天取数、告警去重 | 否 |
+| `store.py` | SQLite：建表、幂等写入、按天取数、区间读数、告警去重 | 否 |
 | `forecast.py` | 日均消耗（中位数）、剩余天数、剔除充值跳变 | 否 |
 | `alerts.py` | 告警判定：固定阈值 + 预测天数 | 否 |
-| `notify.py` | Server酱 / PushPlus / SMTP 三通道 | 否 |
+| `chart.py` | 手写 PNG：折线图、柱状图、5×7 点阵数字、2 倍超采样 | 否 |
+| `usage.py` | 逐区间识别充值，算出每天「真实消耗 + 充值额」 | 否 |
+| `mail.py` | 日报 HTML 正文 + MIME 组装（CID 内嵌两张 PNG） | 否 |
+| `notify.py` | Server酱 / PushPlus / SMTP 三通道；SMTP 支持发送已组装邮件 | 否 |
 | `report.py` | 文本日报、CSV 导出 | 否 |
-| `cli.py` | `once` / `probe` / `report` / `refresh-token` / `init-db` / `selftest` | 否 |
+| `cli.py` | `once` / `probe` / `report` / `report --email` / `refresh-token` / `init-db` / `selftest` | 否 |
 
 ---
 
@@ -83,6 +93,7 @@ rest_electric/
 | `python -m rest_electric ingest --balance 24.03` | 手工补录一条读数；`--force` 跳过与上一条的差值校验 |
 | `python -m rest_electric check-stale` | 采集端多久没上报了；超过 `stale_hours` 推送告警（退出码 2） |
 | `python -m rest_electric report --days 14` | 打印最近 N 天余额、日均、剩余天数；`--csv out.csv` 导出；`--push` 推到微信 |
+| `python -m rest_electric report --email` | 发每日邮件日报（HTML + 14 天图表，同一天 3 小时内不重复）；`--force` 强制重发 |
 | `python -m rest_electric probe --file capture/sample.json` | 用抓到的响应样本验证解析逻辑，不联网、不写库 |
 | `python -m rest_electric refresh-token --token xxx` | 更新 `secrets.toml` 里的 token（人工续期用） |
 | `python -m rest_electric init-db` | 初始化数据库 |
@@ -90,7 +101,7 @@ rest_electric/
 | `python scripts/import-flow.py --flow <file> --write-capture` | 从 mitmproxy flow 提取 token 写入 secrets.toml，并生成脱敏样本 |
 | `python scripts/import-flow.py --flow <file> --list` | 列出该 flow 里的全部请求，用于找登录接口 |
 
-退出码：`0` 成功；`2` 查询失败 / 采集端离线（已推送通知）；`3` 配置错误；`4` 登录态失效。
+退出码：`0` 成功；`2` 查询失败 / 采集端离线 / 日报发送失败（已推送通知）；`3` 配置错误；`4` 登录态失效。
 
 ---
 
@@ -160,22 +171,24 @@ $env:PYTHONPATH = "src"
 python -m unittest discover -s tests -v
 ```
 
-54 个用例，纯标准库、无网络访问（推送测试用本地假服务端）。测试临时目录建在 `.test-tmp/`，跑完自动清理。
+**118 个用例**，纯标准库、无网络访问（推送测试用本地假服务端；邮件用假 SMTP）。
+测试临时目录建在 `.test-tmp/`，跑完自动清理。
+
 
 ---
 
 ## 定时运行
 
-**Windows（现在）**
+**Windows（开发机；计划任务已停用）**
 
 ```powershell
-# 注册每天 09:07 / 21:07 两个计划任务（含 ±N 分钟抖动由程序内部处理）
+# 只保留脚本，生产已迁到树莓派——不要重新启用，否则会双写库/并发 CAS 登录
 .\scripts\install-task.ps1
 # 卸载
 .\scripts\install-task.ps1 -Uninstall
 ```
 
-**树莓派（现行：网页版 + 定时器）**
+**树莓派（现行：网页版 + 定时器 + 邮件日报）**
 
 ```bash
 sudo bash scripts/deploy-pi.sh          # 装 systemd 单元
@@ -184,8 +197,18 @@ journalctl -u rest-electric.service -n 50
 ```
 
 - `rest-electric.timer` → `once`（`mode = "epay"`），白天 **08:07–22:07 每 2 小时**一次（共 8 次），带 0–10 分钟抖动；
+- `rest-electric-daily.timer` → `report --email`，每天 **23:00** 发带 14 天图表的日报，失败在 23:20 / 23:40 重试；
+  只有 `[notify].smtp_*` 与收件人配置齐全时 deploy 脚本才会启用它；
 - `rest-electric-ingest.service` + `rest-electric-stale.timer`：**备用**的手机上报通道，不用可以不管；
 - 网页端没有 2 小时 token 限制，所以不再需要「抓 token / 打开小程序」这套流程。
+
+手动验证日报（树莓派上）：
+
+```bash
+cd /opt/rest_electric
+sudo -u restelec PYTHONPATH=src python3 -m rest_electric report --email --force
+journalctl -u rest-electric-daily.service -n 50
+```
 
 ---
 
@@ -193,7 +216,9 @@ journalctl -u rest-electric.service -n 50
 
 - **纯标准库**：不装任何第三方包。树莓派 Zero 2W 也能跑，不会因为 pip 或版本漂移半夜挂掉。
 - **金额一律整数分**：数据库里没有浮点，避免 `0.1+0.2` 那类误差。
-- **充值不算用电**：余额上升的区间直接丢弃，不会把充值误算成负消耗。
+- **充值单独识别**：逐区间判断余额上升，把充值从用电里剥出去，同时把该区间的消耗加回来；
+  小额充值（小于区间消耗）也不会被日终对比吃掉。
+- **日报图也是零依赖**：`zlib + struct` 手写 PNG，邮件用 CID 内嵌，不依赖第三方图床。
 - **宁可多报一次，不可静默失败**：查询失败、token 过期都会推送，且有冷却期避免刷屏。
 - **只查自己一个房间**：不做房间枚举，`room_key` 只是数据分区字段。
 
@@ -203,14 +228,17 @@ journalctl -u rest-electric.service -n 50
 
 - `config/secrets.toml`、`data/`、`capture/` 的原始抓包都在 `.gitignore` 里，**不要提交、不要外发**。
 - 抓包样本入库前请脱敏（token、openid、学号、姓名替换为占位符）。
-- 只查询本人宿舍，频率压到每天 2 次，不提供任何他人房间查询能力。
+- 只查询本人宿舍，白天每 2 小时一次（8 次/天），不提供任何他人房间查询能力。
 - 该接口非公开，学校随时可能变更或加固；届时按 [docs/recon-sop.md](docs/recon-sop.md) 重新抓包，通常只需更新 `client.py`。
 
 ---
 
 ## 文档
 
-- [docs/phone-automation.md](docs/phone-automation.md) — **现行方案**：手机读屏 + 树莓派接收，含四道验证门与排障
+- [docs/epay-web.md](docs/epay-web.md) — **主通道**：网页版查询 + CAS 自动登录
+- [docs/email-report-design.md](docs/email-report-design.md) — **每日 23:00 邮件日报**：图表、充值识别、MIME 结构、调度
+- [docs/handover.md](docs/handover.md) — 交接说明：谁在跑、数据在哪、踩过的坑
+- [docs/phone-automation.md](docs/phone-automation.md) — 备用方案：手机读屏 + 树莓派接收，含四道验证门与排障
 - [docs/token-auth-analysis.md](docs/token-auth-analysis.md) — **为什么不再折腾 token**：认证机制的只读分析与证据
 - [docs/结论与后续.md](docs/结论与后续.md) — 项目为什么停下、什么条件下值得重启
 - [docs/mitmweb-quickstart.md](docs/mitmweb-quickstart.md) — **第一次用 mitmweb 先看这个**：界面怎么读、代理怎么开、问题对照表
