@@ -7,10 +7,10 @@
 
 [room]
 # 数据分区键，只用于本地数据库与报表显示
-room_key = "11010610"
+room_key = "12345678"
 # 接口里的楼栋号（请求体 buildid）与房间号（请求体 roomid）
 building = "1"
-room = "11010610"
+room = "12345678"
 
 [storage]
 db_path = "data/electric.db"

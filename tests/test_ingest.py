@@ -28,9 +28,9 @@ NOW = datetime(2026, 10, 22, 17, 0, 0, tzinfo=timezone(timedelta(hours=8)))
 
 CONFIG = """
 [room]
-room_key = "11010610"
+room_key = "12345678"
 building = "1"
-room = "11010610"
+room = "12345678"
 
 [storage]
 db_path = "{db}"
@@ -157,7 +157,7 @@ class ParsePayloadTest(IngestTestBase):
 
     def test_room_key_defaults_to_config(self) -> None:
         reading = ingest.parse_payload(self.config, {"balance": 1}, now=NOW)
-        self.assertEqual(reading.room_key, "11010610")
+        self.assertEqual(reading.room_key, "12345678")
 
     def test_other_room_rejected(self) -> None:
         with self.assertRaises(PermissionError):
@@ -165,7 +165,7 @@ class ParsePayloadTest(IngestTestBase):
 
     def test_missing_balance(self) -> None:
         with self.assertRaises(ProtocolError):
-            ingest.parse_payload(self.config, {"room_key": "11010610"}, now=NOW)
+            ingest.parse_payload(self.config, {"room_key": "12345678"}, now=NOW)
 
     def test_bad_unit(self) -> None:
         with self.assertRaises(ProtocolError):
@@ -217,7 +217,7 @@ class ImplausibleTest(IngestTestBase):
         conn = store.connect(self.config.db_path)
         try:
             store.init_db(conn)
-            store.insert_reading(conn, Reading("11010610", 2403, clock.iso(NOW)), True)
+            store.insert_reading(conn, Reading("12345678", 2403, clock.iso(NOW)), True)
             reading = ingest.parse_payload(self.config, {"balance": "69.41"}, now=NOW)
             self.assertIn("相差", ingest.implausible(self.config, conn, reading))
         finally:
@@ -238,7 +238,7 @@ class StaleTest(IngestTestBase):
         try:
             store.init_db(conn)
             old = clock.iso(clock.now() - timedelta(hours=40))
-            store.insert_reading(conn, Reading("11010610", 100, old), True)
+            store.insert_reading(conn, Reading("12345678", 100, old), True)
             age = ingest.stale_age_hours(self.config, conn)
             self.assertIsNotNone(age)
             self.assertGreater(age, 39)
@@ -329,7 +329,7 @@ class ServerTest(IngestTestBase):
         conn = store.connect(self.config.db_path)
         try:
             store.init_db(conn)
-            store.insert_reading(conn, Reading("11010610", 100, clock.iso(clock.now())), True)
+            store.insert_reading(conn, Reading("12345678", 100, clock.iso(clock.now())), True)
         finally:
             conn.close()
 

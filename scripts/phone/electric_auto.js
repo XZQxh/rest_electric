@@ -23,7 +23,7 @@ var CFG = {
     waitSeconds: 45,                          // 等小程序页面出现的上限
     queueDir: "/sdcard/electric",
     maxDeltaYuan: 20.0,                       // 与上次读数差太多就不上报，留着人工确认
-    room: "11010610"
+    room: "12345678"
 };
 
 var AMOUNT = /^\s*(\d{1,4}\.\d{2})\s*元?\s*$/;

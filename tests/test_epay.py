@@ -68,7 +68,7 @@ RESULT_PAGE = """<html><head><title>查询结果</title></head><body>
         <div class="weui-cell__bd">
             房间
         </div>
-        <div >11010610</div>
+        <div >12345678</div>
     </div>
 </div>
 <div class="weui-cells">
@@ -200,7 +200,7 @@ class EpayTestBase(unittest.TestCase):
         self._tmp = WorkspaceTmpDir("epay")
         self.dir = self._tmp.path
         self.server = FakeServer(
-            ("127.0.0.1", 0), password="secret-pass", room="11010610", result_page=RESULT_PAGE
+            ("127.0.0.1", 0), password="secret-pass", room="12345678", result_page=RESULT_PAGE
         )
         threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True).start()
         self.config = self._make_config()
@@ -215,9 +215,9 @@ class EpayTestBase(unittest.TestCase):
         config_path.write_text(
             f"""
 [room]
-room_key = "11010610"
+room_key = "12345678"
 building = "1"
-room = "11010610"
+room = "12345678"
 
 [storage]
 db_path = "{(self.dir / 'electric.db').as_posix()}"
@@ -280,7 +280,7 @@ class RsaTest(EpayTestBase):
 class ParseResultTest(EpayTestBase):
     def test_parse(self) -> None:
         room, amount = epay.parse_result(RESULT_PAGE)
-        self.assertEqual(room, "11010610")
+        self.assertEqual(room, "12345678")
         self.assertEqual(amount, "23.57")
 
     def test_missing_amount(self) -> None:
@@ -294,7 +294,7 @@ class FetchTest(EpayTestBase):
         reading = client.fetch()
         self.assertEqual(reading.balance_cents, 2357)
         self.assertEqual(reading.source, "epay")
-        self.assertEqual(reading.room_key, "11010610")
+        self.assertEqual(reading.room_key, "12345678")
         self.assertEqual(self.server.logins, 1)
 
     def test_session_reused_without_login(self) -> None:
@@ -312,7 +312,7 @@ class FetchTest(EpayTestBase):
             epay.EpayClient(config).fetch()
 
     def test_other_room_rejected(self) -> None:
-        self.server.result_page = RESULT_PAGE.replace("11010610", "999999")
+        self.server.result_page = RESULT_PAGE.replace("12345678", "999999")
         with self.assertRaises(ProtocolError):
             epay.EpayClient(self.config).fetch()
 

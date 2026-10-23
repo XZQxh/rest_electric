@@ -10,10 +10,10 @@
 `hydxyktcs`——但**真正的查询页是另一个 URL**：
 
 ```
-https://shoucard.shou.edu.cn/epay/h5/eleresult?sysid=1&roomid=11010610&areaid=1&buildid=1
+https://shoucard.shou.edu.cn/epay/h5/eleresult?sysid=1&roomid=12345678&areaid=1&buildid=1
 ```
 
-直接打开就能看到「房间 11010610 / 剩余电量 23.57度」。
+直接打开就能看到「房间 12345678 / 剩余电量 23.57度」。
 
 - 表单页之所以"坏"，是因为它的房间下拉只返回一个占位值（`hydxyktcs`），点了查询自然查不到东西；
 - 查询页本身是**服务端渲染 HTML**，一个 GET 就够，没有 2 小时 token、没有微信、没有 `code`。
@@ -21,7 +21,7 @@ https://shoucard.shou.edu.cn/epay/h5/eleresult?sysid=1&roomid=11010610&areaid=1&
 ## 2. 链路（抓包实测）
 
 ```
-GET /epay/h5/eleresult?sysid=1&roomid=11010610&areaid=1&buildid=1
+GET /epay/h5/eleresult?sysid=1&roomid=12345678&areaid=1&buildid=1
   └─ 未登录 → 302 https://uis.shou.edu.cn/cas/login?service=<epay 的 CAS 回调>
        ├─ GET  /cas/login           ← 登录页，含 hidden execution
        ├─ GET  /cas/jwt/publicKey   ← RSA 公钥（2048 位，PKCS#1 v1.5）
@@ -44,7 +44,7 @@ GET /epay/h5/eleresult?sysid=1&roomid=11010610&areaid=1&buildid=1
 <input id="roomdef" left-degree="23.57">
 ```
 
-房间号也在页面里（`房间 / 11010610`），客户端会校验它和配置里的一致，不一致就拒绝入库。
+房间号也在页面里（`房间 / 12345678`），客户端会校验它和配置里的一致，不一致就拒绝入库。
 
 ## 3. 口径
 
@@ -117,7 +117,7 @@ Pi 上由 `rest-electric.timer` 白天 08:07–22:07 每 2 小时跑一次（带
 
 | 时间 | 结果 |
 |---|---|
-| 2026-10-22 16:53 | `once --dry-run` → `网页端读数：23.51 度（房间 11010610）` |
+| 2026-10-22 16:53 | `once --dry-run` → `网页端读数：23.51 度（房间 12345678）` |
 | 2026-10-22 16:55 | `once` → 入库 `balance_cents=2351, source=epay`，报表正常 |
 
 踩过的坑（已修）：密码字段必须带 `__RSA__` 前缀，否则服务端**静默**退回登录页，
@@ -129,4 +129,4 @@ Pi 上由 `rest-electric.timer` 白天 08:07–22:07 每 2 小时跑一次（带
 |---|---|---|
 | **网页版（本文件）** | `mode = "epay"` | 默认，主力 |
 | 小程序接口 | `mode = "http"` | 网页端挂了、但你手上有 2 小时内的 token 时临时用 |
-| 手机读屏上报 | `serve-ingest` | 网页端和小程序都挂了的最后兜底（见 [phone-automation.md](phone-automation.md)） |
+| 手机读屏上报 | `serve-ingest` | 网页端和小程序都挂了的最后兜底（见 [scripts/phone/README.md](../scripts/phone/README.md)） |

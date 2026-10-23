@@ -26,9 +26,9 @@ from rest_electric.models import Reading  # noqa: E402
 
 CONFIG = """
 [room]
-room_key = "11010610"
+room_key = "12345678"
 building = "1"
-room = "11010610"
+room = "12345678"
 
 [storage]
 db_path = "{db}"
